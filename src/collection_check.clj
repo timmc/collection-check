@@ -296,10 +296,9 @@ group (until throws.)"
 
 (defn gen-iterator-like
   "A generator version of assert-iterator-like. Run quick-check on it."
-  [element-gen iterator-of removable?]
+  [seq-gen iterator-of removable?]
   (prop/for-all [action-groups (gen-iterator-actions removable?)
-                 target-seq (gen/such-that #(< (count %) 10)
-                                           (gen/list element-gen))]
+                 target-seq seq-gen]
     (let [reference (.iterator (if removable?
                                  (java.util.ArrayList. target-seq)
                                  target-seq))
@@ -311,13 +310,14 @@ group (until throws.)"
       true)))
 
 (defn assert-iterator-like
-  "Given an element generator (to make a target output sequence), a
-function to make an iterator (for a target output sequence), and a
-boolean indicating whether elements should be removable, assert that
-the iterators behave as expected."
-  ([element-gen iterator-of removable?]
-     (assert-iterator-like 1e3 element-gen iterator-of removable?))
-  ([n element-gen iterator-of removable?]
+  "Given a sequence generator, a function to make an iterator (for a
+target output sequence), and a boolean indicating whether elements
+should be removable, assert that the iterators behave as expected.
+
+An example seq-gen is (gen/list gen/int)"
+  ([seq-gen iterator-of removable?]
+     (assert-iterator-like 1e3 seq-gen iterator-of removable?))
+  ([n seq-gen iterator-of removable?]
      (assert-not-failed
        (quick-check n
-         (gen-iterator-like element-gen iterator-of removable?)))))
+         (gen-iterator-like seq-gen iterator-of removable?)))))
