@@ -26,6 +26,13 @@
 
 ;;;
 
+;; These generators produce lists of action-group tuples. Action
+;; groups are discrete manipulation sequences where intermediate
+;; results should not be compared. The elements of an action group are
+;; actions, which are tuples of values where the value in head
+;; position is a keyword indicating some manipulation to perform and
+;; the rest of the values are arguments for that manipulation.
+
 (defn- gen-vector-actions [element-generator transient?]
   (let [standard [(ttuple :pop)
                   (ttuple :conj element-generator)
@@ -233,4 +240,86 @@
          (prop/for-all [actions (gen-map-actions key-generator value-generator (transient? empty-coll))]
            (let [[a b actions] (build-collections empty-coll {} false actions)]
              (assert-equivalent-maps a b)
+             true))))))
+
+(defn- gen-iterable-actions [removable?]
+  (let [standard [(ttuple :.hasNext)
+                  (ttuple :.next)]
+        removable (ttuple :.remove)]
+    (gen/fmap
+     (fn [actions]
+       (if-let [[f & r] (seq actions)]
+         (cons (vec (concat [[:.iterator]] f)) r)
+         (list [[:.iterator]])))
+     (gen/list
+      (gen/one-of
+       (if removable?
+         (conj standard removable)
+         standard))))))
+
+(defn interpret-iterable-actions
+  "Convert iterable action tuples into [subject, return] function calls."
+  [action-groups]
+  (for [group action-groups]
+    (vec (for [[action] group]
+           (case action
+             :.iterator #(vector (.iterator %) nil)
+             :.hasNext  #(vector % (.hasNext %))
+             :.next     #(vector % (.next %))
+             :.remove   #(vector % (.remove %)))))))
+
+(defn apply-fn-group!
+  "Apply [subject, return] fns and yield final {:subject, :return}
+or {:throw}."
+  [subject fn-group]
+  (try
+    (reduce (fn [{:keys [subject return]} f]
+              ;; throws away intermediate :return values
+              (zipmap [:subject :return]
+                      (f subject)))
+            {:subject subject :return nil}
+            fn-group)
+    (catch Throwable t
+      {:throw true})))
+
+(defn apply-fn-groups!
+  "Apply [subject, return] function groups to an object, yielding a
+sequence of return values and possibly a terminal exception, one per
+group (until throws.)"
+  [subject fn-groups]
+  (:results
+   (reduce (fn [{:keys [subject done results] :as accum} fn-group]
+             (if done
+               accum
+               (let [result (apply-fn-group! subject fn-group)]
+                 (if (contains? result :throw)
+                   {:done true
+                    :results (conj results (select-keys result [:throw]))}
+                   {:subject (:subject result)
+                    :results (conj results (select-keys result [:return]))}))))
+           {:subject subject, :results [], :done false}
+           fn-groups)))
+
+(defn assert-iterable-like
+  ([iterable-generator removable?]
+     (assert-iterable-like 1e3 iterable-generator removable?))
+  ([n iterable-generator removable?]
+     (assert-not-failed
+       (quick-check n
+         (prop/for-all [action-groups (gen-iterable-actions removable?)
+                        target-seq (gen/such-that #(< (count %) 10)
+                                                  (gen/list gen/int))]
+           (let [reference (if removable?
+                             (java.util.ArrayList. target-seq)
+                             target-seq)
+                 under-test (iterable-generator target-seq)
+                 action-group-fs (interpret-iterable-actions action-groups)]
+             (let [res-r (apply-fn-groups! reference  action-group-fs)
+                   res-t (apply-fn-groups! under-test action-group-fs)]
+               (when-not (= res-r res-t)
+                 (println target-seq)
+                 (println action-groups)
+                 (println res-r)
+                 (println res-t)
+                 (assert false)))
              true))))))
