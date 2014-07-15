@@ -252,6 +252,18 @@
         (conj standard removable)
         standard)))))
 
+;; The function calls for iterator actions return pairs of [subject,
+;; return]. The first element is to be used as the subject of the next
+;; action; the second is the result of the action. These are different
+;; when working with mutable objects. There are something like four
+;; types of functions:
+;;
+;; - `[% (.accessor %)]` when querying the object
+;; - `[% (.mutator %)]` when mutating the object and keeping the result
+;; - `[% (do (.mutate %) _)]` when mutating the object and ignoring the result
+;; - `[(.derive %) _]` when the method call returns the new instance (or a
+;;   a reference to it)
+
 (defn interpret-iterator-actions
   "Convert iterator action tuples into [subject, return] function calls."
   [action-groups]
@@ -294,6 +306,9 @@ group (until throws.)"
            {:subject subject, :results [], :done false}
            fn-groups)))
 
+;; This is split out from assert-iterator-like because
+;; assert-not-failed doesn't know how to output the target-seq. (This
+;; is not a very good reason in and of itself.)
 (defn gen-iterator-like
   "A generator version of assert-iterator-like. Run quick-check on it."
   [seq-gen iterator-of removable?]
