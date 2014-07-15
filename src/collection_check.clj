@@ -294,26 +294,30 @@ group (until throws.)"
            {:subject subject, :results [], :done false}
            fn-groups)))
 
+(defn gen-iterator-like
+  "A generator version of assert-iterator-like. Run quick-check on it."
+  [element-gen iterator-of removable?]
+  (prop/for-all [action-groups (gen-iterator-actions removable?)
+                 target-seq (gen/such-that #(< (count %) 10)
+                                           (gen/list element-gen))]
+    (let [reference (.iterator (if removable?
+                                 (java.util.ArrayList. target-seq)
+                                 target-seq))
+          under-test (iterator-of target-seq)
+          action-group-fs (interpret-iterator-actions action-groups)]
+      (let [res-r (apply-fn-groups! reference  action-group-fs)
+            res-t (apply-fn-groups! under-test action-group-fs)]
+        (assert (= res-r res-t)))
+      true)))
+
 (defn assert-iterator-like
-  ([iterator-generator removable?]
-     (assert-iterator-like 1e3 iterator-generator removable?))
-  ([n iterator-generator removable?]
+  "Given an element generator (to make a target output sequence), a
+function to make an iterator (for a target output sequence), and a
+boolean indicating whether elements should be removable, assert that
+the iterators behave as expected."
+  ([element-gen iterator-of removable?]
+     (assert-iterator-like 1e3 element-gen iterator-of removable?))
+  ([n element-gen iterator-of removable?]
      (assert-not-failed
        (quick-check n
-         (prop/for-all [action-groups (gen-iterator-actions removable?)
-                        target-seq (gen/such-that #(< (count %) 10)
-                                                  (gen/list gen/int))]
-           (let [reference (.iterator (if removable?
-                                        (java.util.ArrayList. target-seq)
-                                        target-seq))
-                 under-test (iterator-generator target-seq)
-                 action-group-fs (interpret-iterator-actions action-groups)]
-             (let [res-r (apply-fn-groups! reference  action-group-fs)
-                   res-t (apply-fn-groups! under-test action-group-fs)]
-               (when-not (= res-r res-t)
-                 (println target-seq)
-                 (println action-groups)
-                 (println res-r)
-                 (println res-t)
-                 (assert false)))
-             true))))))
+         (gen-iterator-like element-gen iterator-of removable?)))))
