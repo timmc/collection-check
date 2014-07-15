@@ -242,28 +242,22 @@
              (assert-equivalent-maps a b)
              true))))))
 
-(defn- gen-iterable-actions [removable?]
+(defn- gen-iterator-actions [removable?]
   (let [standard [(ttuple :.hasNext)
                   (ttuple :.next)]
         removable (ttuple :.remove)]
-    (gen/fmap
-     (fn [actions]
-       (if-let [[f & r] (seq actions)]
-         (cons (vec (concat [[:.iterator]] f)) r)
-         (list [[:.iterator]])))
-     (gen/list
-      (gen/one-of
-       (if removable?
-         (conj standard removable)
-         standard))))))
+    (gen/list
+     (gen/one-of
+      (if removable?
+        (conj standard removable)
+        standard)))))
 
-(defn interpret-iterable-actions
-  "Convert iterable action tuples into [subject, return] function calls."
+(defn interpret-iterator-actions
+  "Convert iterator action tuples into [subject, return] function calls."
   [action-groups]
   (for [group action-groups]
     (vec (for [[action] group]
            (case action
-             :.iterator #(vector (.iterator %) nil)
              :.hasNext  #(vector % (.hasNext %))
              :.next     #(vector % (.next %))
              :.remove   #(vector % (.remove %)))))))
@@ -280,7 +274,7 @@ or {:throw}."
             {:subject subject :return nil}
             fn-group)
     (catch Throwable t
-      {:throw true})))
+      {:throw (class t)})))
 
 (defn apply-fn-groups!
   "Apply [subject, return] function groups to an object, yielding a
@@ -300,20 +294,20 @@ group (until throws.)"
            {:subject subject, :results [], :done false}
            fn-groups)))
 
-(defn assert-iterable-like
-  ([iterable-generator removable?]
-     (assert-iterable-like 1e3 iterable-generator removable?))
-  ([n iterable-generator removable?]
+(defn assert-iterator-like
+  ([iterator-generator removable?]
+     (assert-iterator-like 1e3 iterator-generator removable?))
+  ([n iterator-generator removable?]
      (assert-not-failed
        (quick-check n
-         (prop/for-all [action-groups (gen-iterable-actions removable?)
+         (prop/for-all [action-groups (gen-iterator-actions removable?)
                         target-seq (gen/such-that #(< (count %) 10)
                                                   (gen/list gen/int))]
-           (let [reference (if removable?
-                             (java.util.ArrayList. target-seq)
-                             target-seq)
-                 under-test (iterable-generator target-seq)
-                 action-group-fs (interpret-iterable-actions action-groups)]
+           (let [reference (.iterator (if removable?
+                                        (java.util.ArrayList. target-seq)
+                                        target-seq))
+                 under-test (iterator-generator target-seq)
+                 action-group-fs (interpret-iterator-actions action-groups)]
              (let [res-r (apply-fn-groups! reference  action-group-fs)
                    res-t (apply-fn-groups! under-test action-group-fs)]
                (when-not (= res-r res-t)
